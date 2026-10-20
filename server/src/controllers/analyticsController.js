@@ -15,7 +15,7 @@ exports.dashboard = async (req, res) => {
     RawMaterial.find().select('name quantity minimumLevel unit'),
     ProductionSchedule.find({ releaseStatus: 'ON_HOLD' }).select('productType status inspectionStatus inProcessHoldQuantity'),
     ProductionSchedule.countDocuments({ status: 'COMPLETED', inProcessHoldQuantity: { $in: [0, null] }, inspectionStatus: { $in: ['PENDING', null] } }),
-    Notification.find().sort({ createdAt: -1 }).limit(5)
+    Notification.find({$or:[{audience:'ALL_USERS'},{audience:'USERS',recipients:req.user._id},{audience:'ACTIVE_USERS',recipients:req.user._id}]}).sort({ createdAt: -1 }).limit(5)
   ]);
   res.json({
     plannedToday: today.reduce((sum, row) => sum + row.plannedQuantity, 0),

@@ -11,8 +11,8 @@ io.use(async(socket,next)=>{
   try {
     const payload=jwt.verify(socket.handshake.auth?.token||'',process.env.JWT_SECRET);
     const user=await User.findById(payload.id);
-    if(!user||user.status==='DISABLED')return next(new Error('Authentication required'));
-    socket.data.userId=String(user._id); next();
+    if(!user||user.status!=='ACTIVE')return next(new Error('Authentication required'));
+    socket.data.userId=String(user._id); socket.join(`user:${user._id}`); next();
   } catch { next(new Error('Authentication required')); }
 });
 io.on('connection',socket=>{socket.emit('connected',{message:'Real-time monitoring connected'});});

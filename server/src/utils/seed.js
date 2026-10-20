@@ -1,2 +1,15 @@
-require('dotenv').config();const bcrypt=require('bcryptjs');const connectDB=require('../config/database');const User=require('../models/User');const Furnace=require('../models/Furnace');const RawMaterial=require('../models/RawMaterial');
-(async()=>{await connectDB();await User.deleteMany({});await Furnace.deleteMany({});await RawMaterial.deleteMany({});await User.create({name:'System Admin',email:'admin@smartsteel.com',password:await bcrypt.hash('Admin@123',10),role:'ADMIN'});await User.create({name:'Production User',email:'user@smartsteel.com',password:await bcrypt.hash('User@123',10)});await Furnace.insertMany([{name:'Furnace 1',temperature:1500,minTemperature:1400,maxTemperature:1650},{name:'Furnace 2',temperature:1540,minTemperature:1400,maxTemperature:1650}]);await RawMaterial.insertMany([{name:'Iron Ore',quantity:5000,unit:'kg',minimumLevel:1000,supplier:'Primary Supplier'},{name:'Scrap Steel',quantity:2500,unit:'kg',minimumLevel:500,supplier:'Recycling Supplier'},{name:'Limestone',quantity:700,unit:'kg',minimumLevel:800,supplier:'Mineral Supplier'}]);console.log('Seed completed. Admin: admin@smartsteel.com / Admin@123');process.exit(0)})().catch(e=>{console.error(e);process.exit(1)});
+require('dotenv').config();
+const bcrypt=require('bcryptjs');
+const connectDB=require('../config/database');
+const User=require('../models/User');
+const Furnace=require('../models/Furnace');
+const RawMaterial=require('../models/RawMaterial');
+(async()=>{
+  await connectDB();
+  await User.deleteMany({}); await Furnace.deleteMany({}); await RawMaterial.deleteMany({});
+  await User.create({name:'System Admin',email:'admin@smartsteel.com',password:await bcrypt.hash('Admin@123',10),role:'ADMIN',status:'ACTIVE'});
+  await User.create({name:'Production User',email:'user@smartsteel.com',password:await bcrypt.hash('User@123',10),status:'ACTIVE'});
+  await Furnace.insertMany([{name:'Furnace 1',temperature:1500,minTemperature:1400,maxTemperature:1650},{name:'Furnace 2',temperature:1540,minTemperature:1400,maxTemperature:1650}]);
+  await RawMaterial.insertMany([{name:'Iron Ore',quantity:5000,unit:'kg',minimumLevel:1000,supplier:'Primary Supplier'},{name:'Scrap Steel',quantity:2500,unit:'kg',minimumLevel:500,supplier:'Recycling Supplier'},{name:'Limestone',quantity:700,unit:'kg',minimumLevel:800,supplier:'Mineral Supplier'}]);
+  console.log('Seed completed. Admin: admin@smartsteel.com / Admin@123'); process.exit(0);
+})().catch(e=>{console.error(e);process.exit(1)});

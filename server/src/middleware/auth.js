@@ -7,7 +7,7 @@ async function auth(req, res, next) {
     if (!header.startsWith('Bearer ')) return res.status(401).json({ message: 'Authentication required' });
     const payload = jwt.verify(header.slice(7), process.env.JWT_SECRET);
     const user = await User.findById(payload.id);
-    if (!user || user.status === 'DISABLED') return res.status(401).json({ message: 'User is not active' });
+    if (!user || user.status !== 'ACTIVE') return res.status(401).json({ message: 'User is not active' });
     req.user = user;
     next();
   } catch (e) { res.status(401).json({ message: 'Invalid or expired token' }); }
