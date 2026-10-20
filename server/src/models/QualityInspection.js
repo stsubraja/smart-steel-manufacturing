@@ -15,6 +15,8 @@ const schema = new mongoose.Schema({
   measuredValue: { type: String, required: true },
   specification: { type: String, default: '' },
   result: { type: String, enum: ['PASS','FAIL','PENDING'], default: 'PENDING' },
+  accountingStatus: { type: String, enum: ['ACCEPTED','VOIDED'], default: 'ACCEPTED' },
+  accountingNote: { type: String, default: '' },
   inspectedAt: { type: Date, default: Date.now },
   remarks: { type: String, default: '' }
 }, { timestamps: true });

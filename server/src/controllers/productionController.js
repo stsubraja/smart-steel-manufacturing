@@ -2,6 +2,13 @@ const ProductionSchedule = require('../models/ProductionSchedule');
 const QualityInspection = require('../models/QualityInspection');
 const createNotification = require('../utils/createNotification');
 const cache = require('../config/redis');
+const { ensureAccountingInitialized } = require('../utils/qualityAccounting');
+const editableFields = new Set(['actualQuantity', 'status', 'notes']);
+function getEditableUpdates(body) {
+  const forbidden = Object.keys(body).filter(key => !editableFields.has(key));
+  if (forbidden.length) { const error=new Error(`These fields cannot be updated here: ${forbidden.join(', ')}.`); error.status=400; throw error; }
+  return Object.fromEntries(Object.entries(body).filter(([key]) => editableFields.has(key)));
+}
 exports.list = async (req,res) => res.json(await ProductionSchedule.find().populate('createdBy','name email').sort({productionDate:1}));
 exports.create = async (req,res) => {
   const { productType, productionDate, plannedQuantity } = req.body;
@@ -19,24 +26,18 @@ exports.create = async (req,res) => {
   res.status(201).json(schedule);
 };
 exports.update = async (req,res) => {
-  const previous = await ProductionSchedule.findById(req.params.id);
+  let previous = await ProductionSchedule.findById(req.params.id);
   if (!previous) return res.status(404).json({message:'Schedule not found'});
-  const allowed = ['actualQuantity', 'status', 'notes'];
-  const forbidden = Object.keys(req.body).filter(key => !allowed.includes(key));
-  if (forbidden.length) return res.status(400).json({ message: `These fields cannot be updated here: ${forbidden.join(', ')}.` });
-  const updates = {};
-  if (req.body.actualQuantity !== undefined) updates.actualQuantity = req.body.actualQuantity;
-  if (req.body.status !== undefined) updates.status = req.body.status;
-  if (req.body.notes !== undefined) updates.notes = req.body.notes;
+  previous = await ensureAccountingInitialized(previous, ProductionSchedule, QualityInspection);
+  if (!previous) return res.status(404).json({message:'Schedule not found'});
+  let updates;
+  try { updates=getEditableUpdates(req.body); }
+  catch(error) { return res.status(error.status||400).json({message:error.message}); }
   if (updates.actualQuantity !== undefined) {
     updates.actualQuantity = Number(updates.actualQuantity);
     if (!Number.isFinite(updates.actualQuantity) || updates.actualQuantity < 0) return res.status(400).json({ message: 'Actual production must be a non-negative number.' });
     if (previous.status === 'COMPLETED' || previous.status === 'CANCELLED') return res.status(409).json({ message: 'Actual production is locked after a schedule is completed or cancelled.' });
-    const passedRows = await QualityInspection.find({ schedule: previous._id, stage: 'IN_PROCESS', result: 'PASS' }).select('inspectionGroup quantityInspected');
-    const passedByGroup = new Map();
-    for (const row of passedRows) if (!passedByGroup.has(String(row.inspectionGroup))) passedByGroup.set(String(row.inspectionGroup), row);
-    const inspectedQuantity = Array.from(passedByGroup.values()).reduce((sum, row) => sum + Number(row.quantityInspected || 0), 0);
-    const committedQuantity = previous.inProcessHoldQuantity + inspectedQuantity;
+    const committedQuantity = Number(previous.inProcessHoldQuantity || 0) + Number(previous.inProcessInspectedQuantity || 0);
     if (updates.actualQuantity < committedQuantity) return res.status(409).json({ message: `Actual production cannot be reduced below ${committedQuantity} units already held or passed in inspection.` });
   }
   if (updates.status !== undefined) {
@@ -46,9 +47,12 @@ exports.update = async (req,res) => {
   }
   if (updates.status === 'COMPLETED' && Number(updates.actualQuantity ?? previous.actualQuantity) <= 0) return res.status(400).json({ message: 'Enter actual production above zero before completing this schedule.' });
   if (updates.status === 'COMPLETED' && previous.status !== 'COMPLETED') updates.releaseStatus = previous.inProcessHoldQuantity > 0 ? 'ON_HOLD' : 'PENDING_FINAL';
-  const x=await ProductionSchedule.findByIdAndUpdate(req.params.id,updates,{new:true,runValidators:true});
+  const set={...updates};
+  const x=await ProductionSchedule.findOneAndUpdate({_id:req.params.id,inProcessAccountingVersion:previous.inProcessAccountingVersion,status:previous.status,actualQuantity:previous.actualQuantity},{$set:set,$inc:{inProcessAccountingVersion:1}},{new:true,runValidators:true});
+  if(!x)return res.status(409).json({message:'This production schedule changed while you were updating it. Refresh and try again.'});
   await cache.invalidateAnalytics();
   if (x.status === 'COMPLETED' && previous.status !== 'COMPLETED') await createNotification(req.app, { message: `${x.productType} production completed (${x.actualQuantity} units). It is ready for quality inspection.`, type: 'SUCCESS' });
   res.json(x);
 };
 exports.remove = async (req,res) => { await ProductionSchedule.findByIdAndDelete(req.params.id); await cache.invalidateAnalytics(); res.json({message:'Schedule deleted'}); };
+exports.getEditableUpdates = getEditableUpdates;

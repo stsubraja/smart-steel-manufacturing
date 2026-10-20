@@ -7,15 +7,18 @@ async function connectRedis() {
   if (process.env.REDIS_ENABLED === 'false') return;
   client = createClient({ url: process.env.REDIS_URL || 'redis://localhost:6379' });
   client.on('error', error => {
-    if (connected) console.warn('Redis cache unavailable:', error.message);
+    if (connected) console.warn('Redis cache unavailable; continuing with MongoDB.');
     connected = false;
   });
+  client.on('ready', () => { connected = true; });
+  client.on('end', () => { connected = false; });
   try {
     await client.connect();
     connected = true;
     console.log('Redis cache connected');
-  } catch (error) {
-    console.warn(`Redis is unavailable; continuing without cache (${error.message})`);
+  } catch {
+    console.warn('Redis is unavailable; continuing without cache.');
+    try { client.destroy(); } catch { /* Ignore cleanup failures during optional cache startup. */ }
     client = undefined;
   }
 }

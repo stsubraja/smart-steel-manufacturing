@@ -15,7 +15,7 @@ export default function Notifications() {
     const socket = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000', { auth: { token: localStorage.getItem('sb_token') } });
     socket.on('notification:new', (notification: Notification) => setItems(current => [notification, ...current.filter(item => item._id !== notification._id)].slice(0, 50)));
     return () => { socket.disconnect(); };
-  }, []);
+  }, [user?.role]);
   async function createAnnouncement(e: FormEvent) { e.preventDefault(); setError(''); setSuccess(''); try { await api.post('/notifications', { message, type, audience, recipients: audience === 'USERS' ? recipients : [] }); setMessage(''); setRecipients([]); setSuccess(audience === 'ALL_USERS' ? 'Announcement sent to all approved users.' : 'Notification sent to selected users.'); await load(); } catch (err: any) { setError(err?.response?.data?.message || 'Could not create notification.'); } }
   const unread = (item: Notification) => !item.readBy?.includes(String(user?.id));
   async function markRead(item: Notification) { try { await api.patch(`/notifications/${item._id}/read`); await load(); window.dispatchEvent(new Event('notifications:refresh')); } catch { setError('Could not mark notification as read.'); } }
