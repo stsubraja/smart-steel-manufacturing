@@ -57,13 +57,15 @@ exports.inspect = async (req, res) => {
   const availableQuantity = Math.max(0, schedule.actualQuantity - (stage === 'FINAL' ? schedule.inProcessHoldQuantity : schedule.inProcessHoldQuantity + successfullyInspected));
   if (!Number.isFinite(quantity) || quantity <= 0 || quantity > availableQuantity) return res.status(400).json({ message: `Inspection quantity must be between 1 and ${availableQuantity} units.` });
   if (stage === 'IN_PROCESS' && !batchReference) return res.status(400).json({ message: 'Enter a batch or lot reference for in-process inspection.' });
-  if (stage === 'IN_PROCESS' && (!Number.isFinite(lotQuantity) || lotQuantity <= 0 || lotQuantity > schedule.actualQuantity)) return res.status(400).json({ message: `Enter a valid lot quantity between 1 and ${schedule.actualQuantity} units.` });
+  if (stage === 'IN_PROCESS' && (!Number.isFinite(lotQuantity) || lotQuantity <= 0)) return res.status(400).json({ message: 'Enter a lot quantity greater than zero.' });
   let passedForLot = 0;
   if (stage === 'IN_PROCESS') {
     const sameLot = passedRows.filter(row => String(row.batchReference || '').toLowerCase() === batchReference.toLowerCase());
     const previousLotQuantity = sameLot.find(row => row.lotQuantity > 0)?.lotQuantity;
     if (previousLotQuantity && previousLotQuantity !== lotQuantity) return res.status(409).json({ message: `Lot ${batchReference} is already recorded with a total quantity of ${previousLotQuantity}.` });
     passedForLot = sameLot.reduce((sum, row) => sum + Number(row.quantityInspected || 0), 0);
+    const maximumLotQuantity = availableQuantity + passedForLot;
+    if (lotQuantity > maximumLotQuantity) return res.status(400).json({ message: `Lot total cannot exceed the ${maximumLotQuantity} units currently available for this schedule${passedForLot ? ' plus units already passed from this lot' : ''}.` });
     if (quantity > lotQuantity - passedForLot) return res.status(409).json({ message: `Lot ${batchReference} has ${lotQuantity - passedForLot} units remaining for inspection.` });
   }
   if (stage === 'IN_PROCESS' && await QualityInspection.exists({ schedule: schedule._id, stage, batchReference: new RegExp(`^${batchReference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'), resolutionStatus: 'PENDING' })) return res.status(409).json({ message: 'This batch already has an unresolved quality hold.' });
