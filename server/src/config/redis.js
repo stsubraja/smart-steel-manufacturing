@@ -35,4 +35,8 @@ async function del(key) {
   try { await client.del(key); } catch { /* cache errors do not fail API requests */ }
 }
 
-module.exports = { connectRedis, get, set, del };
+async function invalidateAnalytics() {
+  await Promise.all(['analytics:dashboard', 'analytics:report:7', 'analytics:report:14', 'analytics:report:30'].map(del));
+}
+
+module.exports = { connectRedis, get, set, del, invalidateAnalytics };

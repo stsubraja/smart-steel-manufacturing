@@ -1,1 +1,1 @@
-const r=require('express').Router();const c=require('../controllers/analyticsController');const {auth}=require('../middleware/auth');r.use(auth);r.get('/dashboard',c.dashboard);module.exports=r;
+const r=require('express').Router();const c=require('../controllers/analyticsController');const {auth}=require('../middleware/auth');r.use(auth);r.get('/dashboard',c.dashboard);r.get('/report',c.report);module.exports=r;

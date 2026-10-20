@@ -44,6 +44,11 @@ exports.update = async (req, res) => {
   const old = await Furnace.findById(req.params.id);
   if (!old) return res.status(404).json({ message: 'Furnace not found' });
   const set = {};
+  const minTemperature = req.body.minTemperature === undefined ? old.minTemperature : Number(req.body.minTemperature);
+  const maxTemperature = req.body.maxTemperature === undefined ? old.maxTemperature : Number(req.body.maxTemperature);
+  if (!Number.isFinite(minTemperature) || !Number.isFinite(maxTemperature) || minTemperature < 1 || maxTemperature <= minTemperature) return res.status(400).json({ message: 'Temperature range is invalid. Maximum must be greater than minimum.' });
+  if (req.body.minTemperature !== undefined) set.minTemperature = minTemperature;
+  if (req.body.maxTemperature !== undefined) set.maxTemperature = maxTemperature;
   if (typeof req.body.isRunning === 'boolean') set.isRunning = req.body.isRunning;
   if (req.body.temperature !== undefined) {
     const temperature = Number(req.body.temperature);
@@ -58,7 +63,7 @@ exports.update = async (req, res) => {
   set.status = state({ ...old.toObject(), ...set });
   const f = await Furnace.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
   if (old.isRunning !== f.isRunning) await createNotification(req.app, { message: `${f.name} ${f.isRunning ? 'resumed' : 'stopped'} by an administrator.`, type: 'INFO' });
-  await cache.del('analytics:dashboard');
+  await cache.invalidateAnalytics();
   const io = req.app.get('io');
   if (io) io.emit('furnace:update', await Furnace.find().sort({ name: 1 }));
   res.json(f);
@@ -85,7 +90,7 @@ async function advanceFurnaces(app) {
     return f;
   }));
   if (app.get('io')) app.get('io').emit('furnace:update', updated);
-  await cache.del('analytics:dashboard');
+  await cache.invalidateAnalytics();
   return updated;
 }
 exports.simulate = async (req, res) => res.json(await advanceFurnaces(req.app));

@@ -12,7 +12,7 @@ exports.create = async (req,res) => {
   const duplicate = await ProductionSchedule.findOne({ productType: new RegExp(`^${productType.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'), productionDate: { $gte: start, $lt: end }, status: { $ne: 'CANCELLED' } });
   if (duplicate) return res.status(409).json({ message: 'A schedule for this product already exists on that date.' });
   const schedule = await ProductionSchedule.create({ ...req.body, productType: productType.trim(), productionDate: date, plannedQuantity: Number(plannedQuantity), createdBy: req.user._id });
-  await cache.del('analytics:dashboard');
+  await cache.invalidateAnalytics();
   await createNotification(req.app, { message: `Production scheduled: ${schedule.productType} (${schedule.plannedQuantity} units).`, type: 'INFO' });
   res.status(201).json(schedule);
 };
@@ -25,9 +25,10 @@ exports.update = async (req,res) => {
     if (!Number.isFinite(updates.actualQuantity) || updates.actualQuantity < 0) return res.status(400).json({ message: 'Actual production must be a non-negative number.' });
   }
   if (updates.status === 'COMPLETED' && Number(updates.actualQuantity ?? previous.actualQuantity) <= 0) return res.status(400).json({ message: 'Enter actual production above zero before completing this schedule.' });
+  if (updates.status === 'COMPLETED' && previous.status !== 'COMPLETED') updates.releaseStatus = previous.inProcessHoldQuantity > 0 ? 'ON_HOLD' : 'PENDING_FINAL';
   const x=await ProductionSchedule.findByIdAndUpdate(req.params.id,updates,{new:true,runValidators:true});
-  await cache.del('analytics:dashboard');
+  await cache.invalidateAnalytics();
   if (x.status === 'COMPLETED' && previous.status !== 'COMPLETED') await createNotification(req.app, { message: `${x.productType} production completed (${x.actualQuantity} units). It is ready for quality inspection.`, type: 'SUCCESS' });
   res.json(x);
 };
-exports.remove = async (req,res) => { await ProductionSchedule.findByIdAndDelete(req.params.id); await cache.del('analytics:dashboard'); res.json({message:'Schedule deleted'}); };
+exports.remove = async (req,res) => { await ProductionSchedule.findByIdAndDelete(req.params.id); await cache.invalidateAnalytics(); res.json({message:'Schedule deleted'}); };

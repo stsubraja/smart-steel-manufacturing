@@ -28,6 +28,9 @@ export default function Furnaces() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [rangeMin, setRangeMin] = useState('');
+  const [rangeMax, setRangeMax] = useState('');
 
   async function loadFurnaces() {
     const response = await api.get('/furnaces');
@@ -51,6 +54,15 @@ export default function Furnaces() {
     setError(''); setMessage('');
     try { await api.put(`/furnaces/${furnace._id}`, { isRunning: !furnace.isRunning }); await loadFurnaces(); setMessage(`${furnace.name} ${furnace.isRunning ? 'stopped' : 'resumed'}.`); }
     catch (e: any) { setError(e.response?.data?.message || 'Could not update furnace state.'); }
+  }
+
+  function editRange(furnace: Furnace) { setEditingId(furnace._id); setRangeMin(String(furnace.minTemperature)); setRangeMax(String(furnace.maxTemperature)); setError(''); setMessage(''); }
+  async function saveRange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!editingId) return;
+    const min = Number(rangeMin), max = Number(rangeMax);
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min < 1 || max <= min) return setError('Maximum temperature must be greater than the minimum.');
+    try { await api.put(`/furnaces/${editingId}`, { minTemperature: min, maxTemperature: max }); await loadFurnaces(); setEditingId(null); setMessage('Furnace operating range updated.'); }
+    catch (e: any) { setError(e.response?.data?.message || 'Could not update furnace range.'); }
   }
 
   async function addFurnace(event: FormEvent<HTMLFormElement>) {
@@ -87,6 +99,8 @@ export default function Furnaces() {
     {error && <div className="error" role="alert" style={{ marginBottom: 14 }}>{error}</div>}
     {message && <div className="success-message" role="status" style={{ marginBottom: 14 }}>{message}</div>}
 
+    {isAdmin && editingId && <form className="panel form-grid range-form" onSubmit={saveRange}><div><h3>Edit operating range</h3><p className="muted">Adjust the simulated normal operating limits.</p></div><label>Minimum °C<input type="number" min="1" value={rangeMin} onChange={e => setRangeMin(e.target.value)} required /></label><label>Maximum °C<input type="number" min="2" value={rangeMax} onChange={e => setRangeMax(e.target.value)} required /></label><div className="action-cell"><button className="primary">Save range</button><button type="button" className="small" onClick={() => setEditingId(null)}>Cancel</button></div></form>}
+
     {isAdmin && showForm && <form className="panel" onSubmit={addFurnace}>
       <h3>Add a new furnace</h3>
       <div className="form-grid">
@@ -107,7 +121,7 @@ export default function Furnaces() {
         const max = Math.max(furnace.maxTemperature, ...values);
         const points = history.map((item, index) => `${history.length <= 1 ? 0 : index * 100 / (history.length - 1)},${38 - (item.temperature - min) / Math.max(1, max - min) * 30}`).join(' ');
         return <div className="card" key={furnace._id}>
-          <div className="furnace-heading"><span>{furnace.name}</span>{isAdmin && <button className={`small ${furnace.isRunning ? 'danger-outline' : ''}`} onClick={() => setRunning(furnace)}>{furnace.isRunning ? 'Stop furnace' : 'Resume furnace'}</button>}</div>
+          <div className="furnace-heading"><span>{furnace.name}</span>{isAdmin && <div className="action-cell"><button className="small" onClick={() => editRange(furnace)}>Edit range</button><button className={`small ${furnace.isRunning ? 'danger-outline' : ''}`} onClick={() => setRunning(furnace)}>{furnace.isRunning ? 'Stop' : 'Resume'}</button></div>}</div>
           <strong>{furnace.temperature}°C</strong>
           <small className={furnace.status === 'CRITICAL' ? 'danger' : furnace.status === 'WARNING' ? 'warning' : ''}>{furnace.isRunning ? furnace.status : 'STOPPED · SIMULATION PAUSED'}</small>
           <small>Updated {new Date(furnace.lastUpdated).toLocaleTimeString()}</small>
