@@ -1,0 +1,10 @@
+const r=require('express').Router();
+const c=require('../controllers/materialController');
+const {auth,admin}=require('../middleware/auth');
+r.use(auth);
+r.get('/',c.list);
+r.get('/usage',c.usage);
+r.post('/',admin,c.create);
+r.put('/:id',admin,c.update);
+r.post('/:id/use',admin,c.use);
+module.exports=r;
