@@ -4,5 +4,6 @@ const {auth,admin}=require('../middleware/auth');
 r.use(auth);
 r.get('/',c.list);
 r.post('/',admin,c.create);
+r.patch('/read-all',c.readAll);
 r.patch('/:id/read',c.read);
 module.exports=r;

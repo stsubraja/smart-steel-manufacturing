@@ -1,5 +1,8 @@
 const Furnace = require('../models/Furnace');
+const createNotification = require('../utils/createNotification');
+const cache = require('../config/redis');
 function state(f) {
+  if (f.isRunning === false) return 'OFFLINE';
   if (f.temperature <= 0) return 'OFFLINE';
   if (f.temperature > f.maxTemperature) return 'CRITICAL';
   if (f.temperature > f.maxTemperature - 50 || f.temperature < f.minTemperature) return 'WARNING';
@@ -18,6 +21,7 @@ exports.create = async (req, res) => {
   if (!Number.isFinite(temperature) || temperature < 1 || temperature > maxTemperature + 80) {
     return res.status(400).json({ message: 'Starting temperature is outside the allowed range.' });
   }
+  if (await Furnace.findOne({ name: new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') })) return res.status(409).json({ message: 'A furnace with this name already exists.' });
   try {
     const f = await Furnace.create({
       name,
@@ -37,23 +41,34 @@ exports.create = async (req, res) => {
   }
 };
 exports.update = async (req, res) => {
-  const set = { ...req.body, lastUpdated: new Date() };
+  const old = await Furnace.findById(req.params.id);
+  if (!old) return res.status(404).json({ message: 'Furnace not found' });
+  const set = {};
+  if (typeof req.body.isRunning === 'boolean') set.isRunning = req.body.isRunning;
+  if (req.body.temperature !== undefined) {
+    const temperature = Number(req.body.temperature);
+    if (!Number.isFinite(temperature) || temperature < 0) return res.status(400).json({ message: 'Temperature must be a non-negative number.' });
+    set.temperature = temperature;
+  }
+  set.lastUpdated = new Date();
   const update = { $set: set };
   if (set.temperature !== undefined) {
-    const old = await Furnace.findById(req.params.id);
-    if (old) {
-      set.status = state({ ...old.toObject(), ...set });
-      update.$push = { temperatureHistory: { temperature: Number(set.temperature), recordedAt: new Date() } };
-    }
+    update.$push = { temperatureHistory: { temperature: Number(set.temperature), recordedAt: new Date() } };
   }
+  set.status = state({ ...old.toObject(), ...set });
   const f = await Furnace.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
-  if (!f) return res.status(404).json({ message: 'Furnace not found' });
+  if (old.isRunning !== f.isRunning) await createNotification(req.app, { message: `${f.name} ${f.isRunning ? 'resumed' : 'stopped'} by an administrator.`, type: 'INFO' });
+  await cache.del('analytics:dashboard');
+  const io = req.app.get('io');
+  if (io) io.emit('furnace:update', await Furnace.find().sort({ name: 1 }));
   res.json(f);
 };
 // Simulation moves gradually from the previous reading; it is not a physical sensor.
 async function advanceFurnaces(app) {
   const furnaces = await Furnace.find();
   const updated = await Promise.all(furnaces.map(async (f) => {
+    if (f.isRunning === false) return f;
+    const previousStatus = f.status;
     const baseline = f.temperature > 0 ? f.temperature : Math.round((f.minTemperature + f.maxTemperature) / 2 - 25);
     const change = Math.round((Math.random() * 2 - 1) * 8); // -8°C to +8°C per tick
     const low = Math.max(0, f.minTemperature - 100);
@@ -63,9 +78,14 @@ async function advanceFurnaces(app) {
     f.lastUpdated = new Date();
     f.temperatureHistory.push({ temperature: f.temperature, recordedAt: f.lastUpdated });
     if (f.temperatureHistory.length > 100) f.temperatureHistory.splice(0, f.temperatureHistory.length - 100);
-    return f.save();
+    await f.save();
+    if (f.status !== previousStatus && ['WARNING', 'CRITICAL'].includes(f.status)) {
+      await createNotification(app, { message: `${f.name} temperature status changed to ${f.status} (${f.temperature}°C).`, type: f.status === 'CRITICAL' ? 'ALERT' : 'WARNING' });
+    }
+    return f;
   }));
   if (app.get('io')) app.get('io').emit('furnace:update', updated);
+  await cache.del('analytics:dashboard');
   return updated;
 }
 exports.simulate = async (req, res) => res.json(await advanceFurnaces(req.app));

@@ -8,6 +8,7 @@ const schema = new mongoose.Schema({
   temperature: { type: Number, default: 0 },
   minTemperature: { type: Number, default: 1400 },
   maxTemperature: { type: Number, default: 1650 },
+  isRunning: { type: Boolean, default: true },
   status: { type: String, enum: ['NORMAL','WARNING','CRITICAL','OFFLINE'], default: 'NORMAL' },
   lastUpdated: { type: Date, default: Date.now },
   temperatureHistory: { type: [readingSchema], default: [] }

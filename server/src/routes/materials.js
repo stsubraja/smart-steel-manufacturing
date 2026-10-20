@@ -6,5 +6,6 @@ r.get('/',c.list);
 r.get('/usage',c.usage);
 r.post('/',admin,c.create);
 r.put('/:id',admin,c.update);
+r.delete('/:id',admin,c.remove);
 r.post('/:id/use',admin,c.use);
 module.exports=r;

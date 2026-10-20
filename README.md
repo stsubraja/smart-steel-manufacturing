@@ -83,5 +83,11 @@ The current furnace values are simulated in software, which is suitable for a co
 
 This project has real limitations; no software can guarantee there are none. It is a prototype rather than a validated plant control system: simulated data can differ from plant behavior; MongoDB Atlas/network availability affects the app; Redis is an optional cache and can briefly serve dashboard figures up to 15 seconds old; security, audit, backup, concurrency, and scale need deployment-specific review; and the current analytics are basic. It must not be used for furnace control, safety decisions, or production planning without industrial validation. These limitations are documented rather than hidden because removing a disclaimer would not remove the underlying risks.
 
+Completed schedules require actual output above zero to mark completion and become available for inspection. Quality checks compare entered numeric readings against the minimum and maximum specifications. Admins can stop/resume simulated furnaces; a stopped furnace is excluded from simulator updates. Notifications are generated for schedules, completions, quality outcomes, low stock, furnace state changes, and temperature alerts; each user can mark them read independently.
+
+The login/register screen follows the saved light/dark theme, with a steelmaking photo background. Real-time furnace and notification Socket.IO connections require an authenticated session.
+
+Duplicate material names are checked case-insensitively, and duplicate product schedules for the same date are rejected with a user-facing message. Furnace names and account emails also have duplicate protection.
+
 ## GitHub upload
 This folder starts without Git metadata or a configured remote. To publish it, initialize Git, commit the project, add your GitHub repository URL as `origin`, and push the branch. Never stage `.env` or credentials; `.gitignore` excludes them.

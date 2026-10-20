@@ -12,6 +12,7 @@ type Furnace = {
   lastUpdated: string;
   minTemperature: number;
   maxTemperature: number;
+  isRunning: boolean;
   temperatureHistory?: Reading[];
 };
 
@@ -35,7 +36,7 @@ export default function Furnaces() {
 
   useEffect(() => {
     loadFurnaces().catch(() => setError('Could not load furnaces. Check the backend and database connection.'));
-    const socket = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000');
+    const socket = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000', { auth: { token: localStorage.getItem('sb_token') } });
     socket.on('furnace:update', (updated: Furnace[]) => setFurnaces(updated));
     return () => { socket.disconnect(); };
   }, []);
@@ -44,6 +45,12 @@ export default function Furnaces() {
     setError('');
     try { await api.post('/furnaces/simulate'); await loadFurnaces(); }
     catch (e: any) { setError(e.response?.data?.message || 'Could not update simulated temperatures.'); }
+  }
+
+  async function setRunning(furnace: Furnace) {
+    setError(''); setMessage('');
+    try { await api.put(`/furnaces/${furnace._id}`, { isRunning: !furnace.isRunning }); await loadFurnaces(); setMessage(`${furnace.name} ${furnace.isRunning ? 'stopped' : 'resumed'}.`); }
+    catch (e: any) { setError(e.response?.data?.message || 'Could not update furnace state.'); }
   }
 
   async function addFurnace(event: FormEvent<HTMLFormElement>) {
@@ -100,8 +107,9 @@ export default function Furnaces() {
         const max = Math.max(furnace.maxTemperature, ...values);
         const points = history.map((item, index) => `${history.length <= 1 ? 0 : index * 100 / (history.length - 1)},${38 - (item.temperature - min) / Math.max(1, max - min) * 30}`).join(' ');
         return <div className="card" key={furnace._id}>
-          <span>{furnace.name}</span><strong>{furnace.temperature}°C</strong>
-          <small className={furnace.status === 'CRITICAL' ? 'danger' : furnace.status === 'WARNING' ? 'warning' : ''}>{furnace.status}</small>
+          <div className="furnace-heading"><span>{furnace.name}</span>{isAdmin && <button className={`small ${furnace.isRunning ? 'danger-outline' : ''}`} onClick={() => setRunning(furnace)}>{furnace.isRunning ? 'Stop furnace' : 'Resume furnace'}</button>}</div>
+          <strong>{furnace.temperature}°C</strong>
+          <small className={furnace.status === 'CRITICAL' ? 'danger' : furnace.status === 'WARNING' ? 'warning' : ''}>{furnace.isRunning ? furnace.status : 'STOPPED · SIMULATION PAUSED'}</small>
           <small>Updated {new Date(furnace.lastUpdated).toLocaleTimeString()}</small>
           <div style={{ marginTop: 12 }}><small>Recent temperature trend (last 10 readings)</small>
             {history.length > 1 ? <svg viewBox="0 0 100 42" role="img" aria-label={`${furnace.name} simulated temperature trend`} style={{ width: '100%', height: 70 }}><polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.8" vectorEffect="non-scaling-stroke" /></svg> : <small>Collecting readings…</small>}

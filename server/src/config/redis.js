@@ -30,4 +30,9 @@ async function set(key, value, ttlSeconds = 15) {
   try { await client.set(key, value, { EX: ttlSeconds }); } catch { /* cache errors do not fail API requests */ }
 }
 
-module.exports = { connectRedis, get, set };
+async function del(key) {
+  if (!connected || !client) return;
+  try { await client.del(key); } catch { /* cache errors do not fail API requests */ }
+}
+
+module.exports = { connectRedis, get, set, del };
