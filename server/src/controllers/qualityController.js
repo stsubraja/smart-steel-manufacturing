@@ -8,7 +8,19 @@ exports.list = async (req, res) => res.json(await QualityInspection.find().popul
 
 exports.queue = async (req, res) => {
   const schedules = await ProductionSchedule.find({ status: { $in: ['IN_PROGRESS', 'COMPLETED'] } }).sort({ productionDate: 1 });
-  const inProcess = schedules.filter(schedule => schedule.status === 'IN_PROGRESS' && schedule.actualQuantity > 0);
+  const passedRows = await QualityInspection.find({ schedule: { $in: schedules.map(schedule => schedule._id) }, stage: 'IN_PROCESS', result: 'PASS' }).select('schedule inspectionGroup quantityInspected');
+  const inspectedBySchedule = new Map(); const countedGroups = new Set();
+  for (const row of passedRows) {
+    const group = String(row.inspectionGroup);
+    if (countedGroups.has(group)) continue;
+    countedGroups.add(group);
+    const scheduleId = String(row.schedule);
+    inspectedBySchedule.set(scheduleId, (inspectedBySchedule.get(scheduleId) || 0) + Number(row.quantityInspected || 0));
+  }
+  const inProcess = schedules.filter(schedule => schedule.status === 'IN_PROGRESS' && schedule.actualQuantity > 0).map(schedule => {
+    const inspected = inspectedBySchedule.get(String(schedule._id)) || 0;
+    return { ...schedule.toObject(), inProcessInspectedQuantity: inspected, inProcessAvailableQuantity: Math.max(0, schedule.actualQuantity - schedule.inProcessHoldQuantity - inspected) };
+  }).filter(schedule => schedule.inProcessAvailableQuantity > 0);
   const passedFinal = await QualityInspection.distinct('schedule', { result: 'PASS', $or: [{ stage: 'FINAL' }, { stage: null }] });
   const final = schedules.filter(schedule => schedule.status === 'COMPLETED' && schedule.inspectionStatus !== 'PASS' && schedule.inspectionStatus !== 'FAIL' && !passedFinal.some(id => String(id) === String(schedule._id)) && schedule.inProcessHoldQuantity === 0);
   const pendingRows = await QualityInspection.find({ result: 'FAIL', resolutionStatus: 'PENDING' }).populate('schedule', 'productType productionDate status').sort({ inspectedAt: -1 });
@@ -35,10 +47,25 @@ exports.inspect = async (req, res) => {
   const parameters = req.body.parameters;
   if (!Array.isArray(parameters) || parameters.length === 0) return res.status(400).json({ message: 'Add at least one inspection parameter.' });
   const quantity = Number(req.body.quantityInspected);
+  const lotQuantity = Number(req.body.lotQuantity);
   const batchReference = typeof req.body.batchReference === 'string' ? req.body.batchReference.trim() : '';
-  const availableQuantity = Math.max(0, schedule.actualQuantity - (stage === 'FINAL' ? schedule.inProcessHoldQuantity : 0));
+  const storedPassedRows = stage === 'IN_PROCESS' ? await QualityInspection.find({ schedule: schedule._id, stage, result: 'PASS' }).select('batchReference inspectionGroup quantityInspected lotQuantity') : [];
+  const passedByGroup = new Map();
+  for (const row of storedPassedRows) if (!passedByGroup.has(String(row.inspectionGroup))) passedByGroup.set(String(row.inspectionGroup), row);
+  const passedRows = Array.from(passedByGroup.values());
+  const successfullyInspected = passedRows.reduce((sum, row) => sum + Number(row.quantityInspected || 0), 0);
+  const availableQuantity = Math.max(0, schedule.actualQuantity - (stage === 'FINAL' ? schedule.inProcessHoldQuantity : schedule.inProcessHoldQuantity + successfullyInspected));
   if (!Number.isFinite(quantity) || quantity <= 0 || quantity > availableQuantity) return res.status(400).json({ message: `Inspection quantity must be between 1 and ${availableQuantity} units.` });
   if (stage === 'IN_PROCESS' && !batchReference) return res.status(400).json({ message: 'Enter a batch or lot reference for in-process inspection.' });
+  if (stage === 'IN_PROCESS' && (!Number.isFinite(lotQuantity) || lotQuantity <= 0 || lotQuantity > schedule.actualQuantity)) return res.status(400).json({ message: `Enter a valid lot quantity between 1 and ${schedule.actualQuantity} units.` });
+  let passedForLot = 0;
+  if (stage === 'IN_PROCESS') {
+    const sameLot = passedRows.filter(row => String(row.batchReference || '').toLowerCase() === batchReference.toLowerCase());
+    const previousLotQuantity = sameLot.find(row => row.lotQuantity > 0)?.lotQuantity;
+    if (previousLotQuantity && previousLotQuantity !== lotQuantity) return res.status(409).json({ message: `Lot ${batchReference} is already recorded with a total quantity of ${previousLotQuantity}.` });
+    passedForLot = sameLot.reduce((sum, row) => sum + Number(row.quantityInspected || 0), 0);
+    if (quantity > lotQuantity - passedForLot) return res.status(409).json({ message: `Lot ${batchReference} has ${lotQuantity - passedForLot} units remaining for inspection.` });
+  }
   if (stage === 'IN_PROCESS' && await QualityInspection.exists({ schedule: schedule._id, stage, batchReference: new RegExp(`^${batchReference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'), resolutionStatus: 'PENDING' })) return res.status(409).json({ message: 'This batch already has an unresolved quality hold.' });
   if (stage === 'FINAL' && quantity !== availableQuantity) return res.status(400).json({ message: `Final inspection must cover all ${availableQuantity} releasable units.` });
 
@@ -58,7 +85,7 @@ exports.inspect = async (req, res) => {
   if (failed && !['HOLD', 'REWORK'].includes(disposition)) return res.status(400).json({ message: 'A failed inspection must be placed on hold or assigned for rework.' });
   const inspectionGroup = new mongoose.Types.ObjectId();
   const rows = measured.map((item, index) => ({
-    schedule: schedule._id, inspectionGroup, stage, batchReference, quantityInspected: quantity,
+    schedule: schedule._id, inspectionGroup, stage, batchReference, lotQuantity: stage === 'IN_PROCESS' ? lotQuantity : 0, quantityInspected: quantity,
     disposition, resolutionStatus: failed ? 'PENDING' : 'NOT_REQUIRED', inspector: req.user._id,
     parameter: item.parameter, measuredValue: String(item.value), specification: `${item.minimum}–${item.maximum}`,
     result: item.value >= item.minimum && item.value <= item.maximum ? 'PASS' : 'FAIL', remarks: item.remarks

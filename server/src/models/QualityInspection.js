@@ -4,6 +4,7 @@ const schema = new mongoose.Schema({
   inspectionGroup: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
   stage: { type: String, enum: ['IN_PROCESS','FINAL'], default: 'FINAL' },
   batchReference: { type: String, default: '' },
+  lotQuantity: { type: Number, default: 0, min: 0 },
   quantityInspected: { type: Number, default: 0, min: 0 },
   disposition: { type: String, enum: ['CONTINUE','HOLD','REWORK'], default: 'CONTINUE' },
   resolutionStatus: { type: String, enum: ['NOT_REQUIRED','PENDING','RESOLVED'], default: 'NOT_REQUIRED' },

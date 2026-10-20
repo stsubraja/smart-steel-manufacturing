@@ -1,4 +1,5 @@
 const ProductionSchedule = require('../models/ProductionSchedule');
+const QualityInspection = require('../models/QualityInspection');
 const createNotification = require('../utils/createNotification');
 const cache = require('../config/redis');
 exports.list = async (req,res) => res.json(await ProductionSchedule.find().populate('createdBy','name email').sort({productionDate:1}));
@@ -11,7 +12,8 @@ exports.create = async (req,res) => {
   const end = new Date(start); end.setUTCDate(end.getUTCDate() + 1);
   const duplicate = await ProductionSchedule.findOne({ productType: new RegExp(`^${productType.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'), productionDate: { $gte: start, $lt: end }, status: { $ne: 'CANCELLED' } });
   if (duplicate) return res.status(409).json({ message: 'A schedule for this product already exists on that date.' });
-  const schedule = await ProductionSchedule.create({ ...req.body, productType: productType.trim(), productionDate: date, plannedQuantity: Number(plannedQuantity), createdBy: req.user._id });
+  const notes = typeof req.body.notes === 'string' ? req.body.notes.trim() : '';
+  const schedule = await ProductionSchedule.create({ productType: productType.trim(), productionDate: date, plannedQuantity: Number(plannedQuantity), notes, createdBy: req.user._id });
   await cache.invalidateAnalytics();
   await createNotification(req.app, { message: `Production scheduled: ${schedule.productType} (${schedule.plannedQuantity} units).`, type: 'INFO' });
   res.status(201).json(schedule);
@@ -19,10 +21,28 @@ exports.create = async (req,res) => {
 exports.update = async (req,res) => {
   const previous = await ProductionSchedule.findById(req.params.id);
   if (!previous) return res.status(404).json({message:'Schedule not found'});
-  const updates = { ...req.body };
+  const allowed = ['actualQuantity', 'status', 'notes'];
+  const forbidden = Object.keys(req.body).filter(key => !allowed.includes(key));
+  if (forbidden.length) return res.status(400).json({ message: `These fields cannot be updated here: ${forbidden.join(', ')}.` });
+  const updates = {};
+  if (req.body.actualQuantity !== undefined) updates.actualQuantity = req.body.actualQuantity;
+  if (req.body.status !== undefined) updates.status = req.body.status;
+  if (req.body.notes !== undefined) updates.notes = req.body.notes;
   if (updates.actualQuantity !== undefined) {
     updates.actualQuantity = Number(updates.actualQuantity);
     if (!Number.isFinite(updates.actualQuantity) || updates.actualQuantity < 0) return res.status(400).json({ message: 'Actual production must be a non-negative number.' });
+    if (previous.status === 'COMPLETED' || previous.status === 'CANCELLED') return res.status(409).json({ message: 'Actual production is locked after a schedule is completed or cancelled.' });
+    const passedRows = await QualityInspection.find({ schedule: previous._id, stage: 'IN_PROCESS', result: 'PASS' }).select('inspectionGroup quantityInspected');
+    const passedByGroup = new Map();
+    for (const row of passedRows) if (!passedByGroup.has(String(row.inspectionGroup))) passedByGroup.set(String(row.inspectionGroup), row);
+    const inspectedQuantity = Array.from(passedByGroup.values()).reduce((sum, row) => sum + Number(row.quantityInspected || 0), 0);
+    const committedQuantity = previous.inProcessHoldQuantity + inspectedQuantity;
+    if (updates.actualQuantity < committedQuantity) return res.status(409).json({ message: `Actual production cannot be reduced below ${committedQuantity} units already held or passed in inspection.` });
+  }
+  if (updates.status !== undefined) {
+    if (!['PLANNED','IN_PROGRESS','COMPLETED','CANCELLED'].includes(updates.status)) return res.status(400).json({ message: 'Choose a valid production status.' });
+    const transitions = { PLANNED: ['PLANNED','IN_PROGRESS','CANCELLED'], IN_PROGRESS: ['IN_PROGRESS','COMPLETED','CANCELLED'], COMPLETED: ['COMPLETED'], CANCELLED: ['CANCELLED'] };
+    if (!transitions[previous.status]?.includes(updates.status)) return res.status(409).json({ message: `A ${previous.status.toLowerCase()} schedule cannot be changed to ${updates.status.toLowerCase()}.` });
   }
   if (updates.status === 'COMPLETED' && Number(updates.actualQuantity ?? previous.actualQuantity) <= 0) return res.status(400).json({ message: 'Enter actual production above zero before completing this schedule.' });
   if (updates.status === 'COMPLETED' && previous.status !== 'COMPLETED') updates.releaseStatus = previous.inProcessHoldQuantity > 0 ? 'ON_HOLD' : 'PENDING_FINAL';
