@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const { admin } = require('../src/middleware/auth');
 const productionRoutes = require('../src/routes/production');
 const qualityRoutes = require('../src/routes/quality');
+const materialRoutes = require('../src/routes/materials');
 const { getEditableUpdates } = require('../src/controllers/productionController');
 const { seedInitialData } = require('../src/utils/seed');
 
@@ -18,7 +19,8 @@ test('write route admin guard rejects normal users and admits administrators', (
 test('production and quality mutation routes are protected by the admin middleware', () => {
   const protectedRoutes=[
     [productionRoutes,'POST','/'],[productionRoutes,'PUT','/:id'],[productionRoutes,'DELETE','/:id'],
-    [qualityRoutes,'POST','/:scheduleId/inspect'],[qualityRoutes,'PATCH','/groups/:groupId/resolve']
+    [qualityRoutes,'POST','/:scheduleId/inspect'],[qualityRoutes,'PATCH','/groups/:groupId/resolve'],
+    [materialRoutes,'POST','/:id/restock']
   ];
   for(const [router,method,path] of protectedRoutes){
     const route=router.stack.find(layer=>layer.route?.path===path&&layer.route.methods[method.toLowerCase()]);

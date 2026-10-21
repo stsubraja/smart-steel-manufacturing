@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import Feedback from '../components/Feedback';
 
 type Reading = { temperature: number; recordedAt: string };
 type Furnace = {
@@ -96,8 +97,8 @@ export default function Furnaces() {
       </div>}
     </div>
 
-    {error && <div className="error" role="alert" style={{ marginBottom: 14 }}>{error}</div>}
-    {message && <div className="success-message" role="status" style={{ marginBottom: 14 }}>{message}</div>}
+    <Feedback message={error} className="form-feedback" />
+    <Feedback message={message} type="success" className="form-feedback" />
 
     {isAdmin && editingId && <form className="panel form-grid range-form" onSubmit={saveRange}><div><h3>Edit operating range</h3><p className="muted">Adjust the simulated normal operating limits.</p></div><label>Minimum °C<input type="number" min="1" value={rangeMin} onChange={e => setRangeMin(e.target.value)} required /></label><label>Maximum °C<input type="number" min="2" value={rangeMax} onChange={e => setRangeMax(e.target.value)} required /></label><div className="action-cell"><button className="primary">Save range</button><button type="button" className="small" onClick={() => setEditingId(null)}>Cancel</button></div></form>}
 

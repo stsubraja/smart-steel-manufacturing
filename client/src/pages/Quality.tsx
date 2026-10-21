@@ -23,10 +23,14 @@ export default function Quality() {
   useEffect(() => { load().catch(() => setError('Could not load quality inspections.')); }, []);
   useEffect(() => {
     if (!selected) return;
-    requestAnimationFrame(() => {
-      inspectionPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      inspectionPanelRef.current?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true });
+    const frame = requestAnimationFrame(() => {
+      const panel = inspectionPanelRef.current;
+      if (!panel) return;
+      const top = Math.max(0, panel.getBoundingClientRect().top + window.scrollY - 92);
+      window.scrollTo({ top, behavior: 'smooth' });
+      window.setTimeout(() => panel.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true }), 250);
     });
+    return () => cancelAnimationFrame(frame);
   }, [selected]);
   function startInspection(product: Product, stage: 'IN_PROCESS' | 'FINAL') {
     setSelected({ product, stage }); setQuantity(String(stage === 'FINAL' ? product.actualQuantity - product.inProcessHoldQuantity : product.inProcessAvailableQuantity ?? product.actualQuantity)); setLotQuantity(String(product.inProcessAvailableQuantity ?? product.actualQuantity));

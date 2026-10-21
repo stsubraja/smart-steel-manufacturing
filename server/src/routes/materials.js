@@ -5,6 +5,7 @@ r.use(auth);
 r.get('/',c.list);
 r.get('/usage',c.usage);
 r.post('/',admin,c.create);
+r.post('/:id/restock',admin,c.restock);
 r.put('/:id',admin,c.update);
 r.delete('/:id',admin,c.remove);
 r.post('/:id/use',admin,c.use);

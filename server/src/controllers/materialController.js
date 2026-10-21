@@ -6,9 +6,17 @@ exports.list=async(req,res)=>res.json(await RawMaterial.find().sort({name:1}));
 exports.create=async(req,res)=>{
  const name=typeof req.body.name==='string'?req.body.name.trim():'';
  if(!name)return res.status(400).json({message:'Material name is required.'});
- if(await RawMaterial.findOne({name:new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,'i')}))return res.status(409).json({message:'This raw material already exists.'});
+ if(await RawMaterial.findOne({name:new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}$`,'i')}))return res.status(409).json({message:'This raw material already exists. Use Restock to add quantity to its inventory record.'});
  try { const material=await RawMaterial.create({...req.body,name}); await cache.invalidateAnalytics(); res.status(201).json(material); }
- catch(error){if(error.code===11000)return res.status(409).json({message:'This raw material already exists.'});throw error;}
+ catch(error){if(error.code===11000)return res.status(409).json({message:'This raw material already exists. Use Restock to add quantity to its inventory record.'});throw error;}
+};
+exports.restock=async(req,res)=>{
+ const quantityAdded=Number(req.body.quantityAdded);
+ if(!Number.isFinite(quantityAdded)||quantityAdded<=0)return res.status(400).json({message:'Enter a quantity greater than zero to restock.'});
+ const material=await RawMaterial.findByIdAndUpdate(req.params.id,{$inc:{quantity:quantityAdded}},{new:true,runValidators:true});
+ if(!material)return res.status(404).json({message:'Material not found.'});
+ await cache.invalidateAnalytics();
+ res.json(material);
 };
 exports.update=async(req,res)=>{const x=await RawMaterial.findByIdAndUpdate(req.params.id,req.body,{new:true,runValidators:true});if(!x)return res.status(404).json({message:'Material not found'});await cache.invalidateAnalytics();res.json(x)};
 exports.remove=async(req,res)=>{const x=await RawMaterial.findByIdAndDelete(req.params.id);if(!x)return res.status(404).json({message:'Material not found'});await cache.invalidateAnalytics();res.json({message:'Material deleted.'})};
